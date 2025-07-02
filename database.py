@@ -11,6 +11,7 @@ def conectar():
 def criar_tabela():
     conn = conectar()
     cursor = conn.cursor()
+    # Tabela de transações
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS transacoes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,6 +20,12 @@ def criar_tabela():
             valor REAL,
             categoria TEXT,
             data TEXT
+        )
+    ''')
+    # Tabela de usuários
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS usuarios (
+            user_id INTEGER PRIMARY KEY
         )
     ''')
     conn.commit()
@@ -112,3 +119,21 @@ def obter_totais_mes_atual(user_id):
     gasto = next((v for t, v in resultado if t == "gasto"), 0)
 
     return receita, gasto
+
+# 🔔 Funções para lembretes automáticos
+def registrar_usuario(user_id):
+    criar_tabela()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR IGNORE INTO usuarios (user_id) VALUES (?)', (user_id,))
+    conn.commit()
+    conn.close()
+
+def listar_usuarios():
+    criar_tabela()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id FROM usuarios')
+    usuarios = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return usuarios

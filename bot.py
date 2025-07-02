@@ -81,3 +81,5 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("exportar", exportar))
 
     app.run_polling()
+
+print("🤖 Bot iniciado com sucesso!")

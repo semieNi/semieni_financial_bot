@@ -90,3 +90,25 @@ def exportar_transacoes(user_id):
     caminho_csv = f"data/transacoes_{user_id}.csv"
     df.to_csv(caminho_csv, index=False, sep=";")
     return caminho_csv
+
+def obter_totais_mes_atual(user_id):
+    criar_tabela()
+    conn = conectar()
+    cursor = conn.cursor()
+
+    mes_atual = datetime.now().strftime("%Y-%m")
+
+    cursor.execute('''
+        SELECT tipo, SUM(valor)
+        FROM transacoes
+        WHERE user_id = ? AND strftime('%Y-%m', data) = ?
+        GROUP BY tipo
+    ''', (user_id, mes_atual))
+
+    resultado = cursor.fetchall()
+    conn.close()
+
+    receita = next((v for t, v in resultado if t == "receita"), 0)
+    gasto = next((v for t, v in resultado if t == "gasto"), 0)
+
+    return receita, gasto

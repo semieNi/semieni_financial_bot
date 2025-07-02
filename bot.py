@@ -3,11 +3,9 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from database import adicionar_transacao, obter_resumo, obter_saldo
-from database import exportar_transacoes
+from database import exportar_transacoes, obter_totais_mes_atual
 
 load_dotenv()
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -27,6 +25,16 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         adicionar_transacao(user_id, tipo.lower(), valor, categoria.lower())
         await update.message.reply_text(f"{tipo.capitalize()} de R${valor:.2f} em '{categoria}' registrado com sucesso!")
+
+        # ⚠️ ALERTA AUTOMÁTICO
+        receita_mes, gasto_mes = obter_totais_mes_atual(user_id)
+
+        if receita_mes > 0 and gasto_mes >= receita_mes * 0.8:
+            percentual = (gasto_mes / receita_mes) * 100
+            await update.message.reply_text(
+                f"⚠️ Atenção! Seus gastos neste mês já atingiram {percentual:.0f}% da sua receita.\n"
+                "Considere reduzir os gastos para evitar ultrapassar seu orçamento."
+            )
 
     except Exception:
         await update.message.reply_text("⚠️ Formato inválido. Use:\n/add [gasto|receita] [valor] [categoria]")

@@ -14,7 +14,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Use /add para registrar um gasto ou receita.\n"
         "Exemplo: /add gasto 25 mercado\n\n"
         "Use /report para ver seus gastos recentes.\n"
-        "Use /balance para ver seu saldo atual."
+        "Use /balance para ver seu saldo atual.\n"
+        "Use /export para exportar uma planilha com todos os dados que você registrou."
     )
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):

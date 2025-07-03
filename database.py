@@ -29,7 +29,6 @@ class Usuario(Base):
 
 Base.metadata.create_all(engine)
 
-# 📥 CRUD
 def adicionar_transacao(user_id, tipo, valor, categoria):
     session = Session()
     nova = Transacao(
@@ -131,7 +130,7 @@ def deletar_transacao(transacao_id, user_id):
     session.close()
     return False
 
-def listar_transacoes_recentes(user_id, limite=5):
+def buscar_transacoes_por_valor(user_id, valor):
     session = Session()
     transacoes = session.query(
         Transacao.id,
@@ -139,6 +138,6 @@ def listar_transacoes_recentes(user_id, limite=5):
         Transacao.valor,
         Transacao.categoria,
         Transacao.data
-    ).filter_by(user_id=user_id).order_by(Transacao.data.desc()).limit(limite).all()
+    ).filter_by(user_id=user_id, valor=valor).order_by(Transacao.data.desc()).all()
     session.close()
     return transacoes

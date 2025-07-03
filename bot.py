@@ -7,16 +7,13 @@ from database import (
     adicionar_transacao, obter_resumo, obter_saldo,
     exportar_transacoes, obter_totais_mes_atual,
     registrar_usuario, listar_usuarios,
-    listar_transacoes_recentes, deletar_transacao
+    deletar_transacao, buscar_transacoes_por_valor
 )
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-
-# 🗕️ Agendador global
 scheduler = AsyncIOScheduler()
 
-# Categorias predefinidas
 CATEGORIAS = ["mercado", "transporte", "lazer", "salario", "outros"]
 
 async def iniciar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -29,7 +26,7 @@ async def iniciar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Use /saldo para ver seu saldo atual.\n"
         "Use /planilha para exportar uma planilha com todos os dados registrados.\n"
         "Use /painel para acessar seu painel com gráficos online.\n"
-        "Use /ultimos para ver e deletar transações recentes."
+        "Use /deletar_valor <valor> para buscar transações com valor específico e deletar."
     )
 
 async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -99,12 +96,23 @@ async def mensagem_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Use /registrar para iniciar um novo registro.")
 
-async def ultimos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def deletar_valor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    transacoes = listar_transacoes_recentes(user_id)
+
+    if not context.args:
+        await update.message.reply_text("⚠️ Envie o valor que deseja buscar. Ex: /deletar_valor 25.90")
+        return
+
+    try:
+        valor = float(context.args[0].replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("❌ Valor inválido. Envie no formato: /deletar_valor 25.90")
+        return
+
+    transacoes = buscar_transacoes_por_valor(user_id, valor)
 
     if not transacoes:
-        await update.message.reply_text("📍 Nenhuma transação recente encontrada.")
+        await update.message.reply_text("🔍 Nenhuma transação encontrada com esse valor.")
         return
 
     for t in transacoes:
@@ -159,7 +167,6 @@ async def painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"📊 Aqui está seu painel de finanças:\n{link}")
 
-# 🔔 Lembrete semanal: toda segunda às 08h
 async def enviar_resumo_semanal(app):
     for user_id in listar_usuarios():
         resumo = obter_resumo(user_id)
@@ -170,7 +177,6 @@ async def enviar_resumo_semanal(app):
                 mensagem += f"{emoji} {tipo.capitalize()} - {categoria.capitalize()}: R${total:.2f}\n"
             await app.bot.send_message(chat_id=user_id, text=mensagem, parse_mode="Markdown")
 
-# 🔔 Lembrete mensal: dia 1 às 08h
 async def enviar_saldo_mensal(app):
     for user_id in listar_usuarios():
         saldo_valor = obter_saldo(user_id)
@@ -180,23 +186,19 @@ async def enviar_saldo_mensal(app):
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # ⏰ Agendamentos automáticos
     scheduler.add_job(enviar_resumo_semanal, "cron", day_of_week="mon", hour=8, minute=0, args=[app])
     scheduler.add_job(enviar_saldo_mensal, "cron", day=1, hour=8, minute=0, args=[app])
     scheduler.start()
 
-    # Handlers
-    app.add_handler(CommandHandler(["iniciar", "start"], iniciar))
-    app.add_handler(MessageHandler(filters.Regex("^/start$"), iniciar))
     app.add_handler(CommandHandler(["iniciar", "start"], iniciar))
     app.add_handler(CommandHandler("registrar", registrar))
-    app.add_handler(CommandHandler("ultimos", ultimos))
-    app.add_handler(CallbackQueryHandler(callback_handler, pattern="^(tipo_|categoria_|deletar_)", block=False))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem_handler))
     app.add_handler(CommandHandler("resumo", resumo))
     app.add_handler(CommandHandler("saldo", saldo))
     app.add_handler(CommandHandler("planilha", planilha))
     app.add_handler(CommandHandler("painel", painel))
+    app.add_handler(CommandHandler("deletar_valor", deletar_valor))
+    app.add_handler(CallbackQueryHandler(callback_handler, pattern="^(tipo_|categoria_|deletar_)", block=False))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem_handler))
 
     app.run_polling()
 

@@ -6,13 +6,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from database import (
     adicionar_transacao, obter_resumo, obter_saldo,
     exportar_transacoes, obter_totais_mes_atual,
-    registrar_usuario, listar_usuarios
+    registrar_usuario, listar_usuarios,
+    listar_transacoes_recentes, deletar_transacao
 )
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# 📅 Agendador global
+# 🗕️ Agendador global
 scheduler = AsyncIOScheduler()
 
 # Categorias predefinidas
@@ -27,7 +28,8 @@ async def iniciar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Use /resumo para ver seus gastos recentes.\n"
         "Use /saldo para ver seu saldo atual.\n"
         "Use /planilha para exportar uma planilha com todos os dados registrados.\n"
-        "Use /painel para acessar seu painel com gráficos online."
+        "Use /painel para acessar seu painel com gráficos online.\n"
+        "Use /ultimos para ver e deletar transações recentes."
     )
 
 async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -66,6 +68,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["categoria_custom"] = False
             await query.edit_message_text(f"Categoria escolhida: {cat.capitalize()}\nAgora envie o valor:")
 
+    elif data.startswith("deletar_"):
+        transacao_id = int(data.split("_")[1])
+        user_id = query.from_user.id
+        sucesso = deletar_transacao(transacao_id, user_id)
+        if sucesso:
+            await query.edit_message_text("✅ Transação deletada com sucesso.")
+        else:
+            await query.edit_message_text("⚠️ Erro: transação não encontrada ou não pertence a você.")
+
 async def mensagem_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -88,13 +99,29 @@ async def mensagem_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Use /registrar para iniciar um novo registro.")
 
+async def ultimos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    transacoes = listar_transacoes_recentes(user_id)
+
+    if not transacoes:
+        await update.message.reply_text("📍 Nenhuma transação recente encontrada.")
+        return
+
+    for t in transacoes:
+        id_, tipo, valor, categoria, data = t
+        texto = f"ID: {id_}\nTipo: {tipo.capitalize()}\nValor: R${valor:.2f}\nCategoria: {categoria.capitalize()}\nData: {data}"
+        teclado = InlineKeyboardMarkup.from_button(
+            InlineKeyboardButton("🗑 Deletar", callback_data=f"deletar_{id_}")
+        )
+        await update.message.reply_text(texto, reply_markup=teclado)
+
 async def resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     registrar_usuario(user_id)
     resumo = obter_resumo(user_id)
 
     if not resumo:
-        await update.message.reply_text("📭 Nenhuma transação registrada ainda.")
+        await update.message.reply_text("👭 Nenhuma transação registrada ainda.")
         return
 
     mensagem = "📊 *Resumo das transações nos últimos 7 dias:*\n"
@@ -117,7 +144,7 @@ async def planilha(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caminho = exportar_transacoes(user_id)
 
     if not caminho:
-        await update.message.reply_text("📭 Você ainda não tem transações registradas para exportar.")
+        await update.message.reply_text("📬 Você ainda não tem transações registradas para exportar.")
         return
 
     with open(caminho, "rb") as arquivo:
@@ -160,8 +187,11 @@ if __name__ == "__main__":
 
     # Handlers
     app.add_handler(CommandHandler(["iniciar", "start"], iniciar))
+    app.add_handler(MessageHandler(filters.Regex("^/start$"), iniciar))
+    app.add_handler(CommandHandler(["iniciar", "start"], iniciar))
     app.add_handler(CommandHandler("registrar", registrar))
-    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(CommandHandler("ultimos", ultimos))
+    app.add_handler(CallbackQueryHandler(callback_handler, pattern="^(tipo_|categoria_|deletar_)", block=False))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem_handler))
     app.add_handler(CommandHandler("resumo", resumo))
     app.add_handler(CommandHandler("saldo", saldo))

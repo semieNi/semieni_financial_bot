@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from database import (
     adicionar_transacao, obter_resumo, obter_saldo,
@@ -15,13 +15,15 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 # 📅 Agendador global
 scheduler = AsyncIOScheduler()
 
+# Categorias predefinidas
+CATEGORIAS = ["mercado", "transporte", "lazer", "salario", "outros"]
+
 async def iniciar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     registrar_usuario(user_id)
     await update.message.reply_text(
         "👋 Olá! Eu sou seu Assistente Financeiro.\n\n"
-        "Use /registrar para adicionar um gasto ou receita.\n"
-        "Exemplo: /registrar gasto 25 mercado\n\n"
+        "Use /registrar para adicionar um gasto ou receita com botões interativos.\n"
         "Use /resumo para ver seus gastos recentes.\n"
         "Use /saldo para ver seu saldo atual.\n"
         "Use /planilha para exportar uma planilha com todos os dados registrados.\n"
@@ -29,35 +31,62 @@ async def iniciar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("💸 Gasto", callback_data="tipo_gasto")],
+        [InlineKeyboardButton("💰 Receita", callback_data="tipo_receita")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Escolha o tipo de transação:", reply_markup=reply_markup)
+
+def escolher_categoria(tipo):
+    botoes = [[InlineKeyboardButton(cat.capitalize(), callback_data=f"categoria_{cat}")]
+              for cat in CATEGORIAS if cat != "outros"]
+    botoes.append([InlineKeyboardButton("➕ Outra categoria...", callback_data="categoria_outros")])
+    return InlineKeyboardMarkup(botoes)
+
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+
+    if data.startswith("tipo_"):
+        tipo = data.split("_")[1]
+        context.user_data["tipo"] = tipo
+        await query.edit_message_text(f"Tipo escolhido: {tipo.capitalize()}\nAgora escolha uma categoria:",
+                                      reply_markup=escolher_categoria(tipo))
+
+    elif data.startswith("categoria_"):
+        cat = data.split("_")[1]
+        if cat == "outros":
+            context.user_data["categoria_custom"] = True
+            await query.edit_message_text("Digite o nome da categoria personalizada:")
+        else:
+            context.user_data["categoria"] = cat
+            context.user_data["categoria_custom"] = False
+            await query.edit_message_text(f"Categoria escolhida: {cat.capitalize()}\nAgora envie o valor:")
+
+async def mensagem_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    registrar_usuario(user_id)
+    text = update.message.text.strip()
 
-    if len(context.args) != 3:
-        await update.message.reply_text("⚠️ Formato inválido. Use:\n/registrar [gasto|receita] [valor] [categoria]")
+    if context.user_data.get("categoria_custom") and "categoria" not in context.user_data:
+        context.user_data["categoria"] = text.lower()
+        await update.message.reply_text("Agora envie o valor:")
         return
 
-    tipo, valor_str, categoria = context.args
+    if "categoria" in context.user_data and "tipo" in context.user_data:
+        try:
+            valor = float(text.replace(",", "."))
+            adicionar_transacao(user_id, context.user_data["tipo"], valor, context.user_data["categoria"])
+            await update.message.reply_text(f"✅ {context.user_data['tipo'].capitalize()} de R${valor:.2f} registrado em '{context.user_data['categoria']}'.")
+        except ValueError:
+            await update.message.reply_text("⚠️ Valor inválido. Envie apenas números. Ex: 25.90")
+            return
 
-    try:
-        valor = float(valor_str)
-    except ValueError:
-        await update.message.reply_text("⚠️ Valor inválido. Use um número. Ex: /registrar gasto 10 mercado")
-        return
-
-    adicionar_transacao(user_id, tipo.lower(), valor, categoria.lower())
-    await update.message.reply_text(f"{tipo.capitalize()} de R${valor:.2f} em '{categoria}' registrado com sucesso!")
-
-    # ⚠️ Alerta separado
-    try:
-        receita_mes, gasto_mes = obter_totais_mes_atual(user_id)
-        if receita_mes > 0 and gasto_mes >= receita_mes * 0.8:
-            percentual = (gasto_mes / receita_mes) * 100
-            await update.message.reply_text(
-                f"⚠️ Atenção! Seus gastos neste mês já atingiram {percentual:.0f}% da sua receita.\n"
-                "Considere reduzir os gastos para evitar ultrapassar seu orçamento."
-            )
-    except Exception as e:
-        print(f"[Erro alerta automático] {e}")
+        context.user_data.clear()
+    else:
+        await update.message.reply_text("Use /registrar para iniciar um novo registro.")
 
 async def resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -99,7 +128,7 @@ async def painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     registrar_usuario(user_id)
 
     url_base = "https://dashboard-financeiro-3l8yw3xux3u4iztqermk3v.streamlit.app/"
-    link = f"{url_base}/?user_id={user_id}"
+    link = f"{url_base}?user_id={user_id}"
 
     await update.message.reply_text(f"📊 Aqui está seu painel de finanças:\n{link}")
 
@@ -132,6 +161,8 @@ if __name__ == "__main__":
     # Handlers
     app.add_handler(CommandHandler("iniciar", iniciar))
     app.add_handler(CommandHandler("registrar", registrar))
+    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem_handler))
     app.add_handler(CommandHandler("resumo", resumo))
     app.add_handler(CommandHandler("saldo", saldo))
     app.add_handler(CommandHandler("planilha", planilha))

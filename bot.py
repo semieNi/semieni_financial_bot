@@ -159,7 +159,7 @@ if __name__ == "__main__":
     scheduler.start()
 
     # Handlers
-    app.add_handler(CommandHandler("iniciar", iniciar))
+    app.add_handler(CommandHandler(["iniciar", "start"], iniciar))
     app.add_handler(CommandHandler("registrar", registrar))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem_handler))

@@ -119,3 +119,26 @@ def listar_usuarios():
     ids = session.query(Usuario.user_id).all()
     session.close()
     return [u[0] for u in ids]
+
+def deletar_transacao(transacao_id, user_id):
+    session = Session()
+    transacao = session.query(Transacao).filter_by(id=transacao_id, user_id=user_id).first()
+    if transacao:
+        session.delete(transacao)
+        session.commit()
+        session.close()
+        return True
+    session.close()
+    return False
+
+def listar_transacoes_recentes(user_id, limite=5):
+    session = Session()
+    transacoes = session.query(
+        Transacao.id,
+        Transacao.tipo,
+        Transacao.valor,
+        Transacao.categoria,
+        Transacao.data
+    ).filter_by(user_id=user_id).order_by(Transacao.data.desc()).limit(limite).all()
+    session.close()
+    return transacoes

@@ -15,19 +15,20 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 # 📅 Agendador global
 scheduler = AsyncIOScheduler()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def iniciar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     registrar_usuario(user_id)
     await update.message.reply_text(
         "👋 Olá! Eu sou seu Assistente Financeiro.\n\n"
-        "Use /add para registrar um gasto ou receita.\n"
-        "Exemplo: /add gasto 25 mercado\n\n"
-        "Use /report para ver seus gastos recentes.\n"
-        "Use /balance para ver seu saldo atual.\n"
-        "Use /exportar para exportar uma planilha com todos os dados que você registrou."
+        "Use /registrar para adicionar um gasto ou receita.\n"
+        "Exemplo: /registrar gasto 25 mercado\n\n"
+        "Use /resumo para ver seus gastos recentes.\n"
+        "Use /saldo para ver seu saldo atual.\n"
+        "Use /planilha para exportar uma planilha com todos os dados registrados.\n"
+        "Use /painel para acessar seu painel com gráficos online."
     )
 
-async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id
         registrar_usuario(user_id)
@@ -46,9 +47,9 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     except Exception:
-        await update.message.reply_text("⚠️ Formato inválido. Use:\n/add [gasto|receita] [valor] [categoria]")
+        await update.message.reply_text("⚠️ Formato inválido. Use:\n/registrar [gasto|receita] [valor] [categoria]")
 
-async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     registrar_usuario(user_id)
     resumo = obter_resumo(user_id)
@@ -64,14 +65,14 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(mensagem, parse_mode="Markdown")
 
-async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     registrar_usuario(user_id)
     saldo = obter_saldo(user_id)
     cor = "🟢" if saldo >= 0 else "🔴"
     await update.message.reply_text(f"{cor} Seu saldo atual é: R${saldo:.2f}")
 
-async def exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def planilha(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     registrar_usuario(user_id)
     caminho = exportar_transacoes(user_id)
@@ -82,6 +83,15 @@ async def exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with open(caminho, "rb") as arquivo:
         await update.message.reply_document(document=arquivo, filename="transacoes.csv")
+
+async def painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    registrar_usuario(user_id)
+
+    url_base = "https://dashboard-financeiro-3l8yw3xux3u4iztqermk3v.streamlit.app/"  # 🟡 Substitua pela URL real do seu Streamlit
+    link = f"{url_base}/?user_id={user_id}"
+
+    await update.message.reply_text(f"📊 Aqui está seu painel de finanças:\n{link}")
 
 # 🔔 Lembrete semanal: toda segunda às 08h
 async def enviar_resumo_semanal(app):
@@ -97,9 +107,9 @@ async def enviar_resumo_semanal(app):
 # 🔔 Lembrete mensal: dia 1 às 08h
 async def enviar_saldo_mensal(app):
     for user_id in listar_usuarios():
-        saldo = obter_saldo(user_id)
-        cor = "🟢" if saldo >= 0 else "🔴"
-        await app.bot.send_message(chat_id=user_id, text=f"{cor} Seu saldo atual neste início de mês é: R${saldo:.2f}")
+        saldo_valor = obter_saldo(user_id)
+        cor = "🟢" if saldo_valor >= 0 else "🔴"
+        await app.bot.send_message(chat_id=user_id, text=f"{cor} Seu saldo atual neste início de mês é: R${saldo_valor:.2f}")
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
@@ -109,12 +119,13 @@ if __name__ == "__main__":
     scheduler.add_job(enviar_saldo_mensal, "cron", day=1, hour=8, minute=0, args=[app])
     scheduler.start()
 
-    # Handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add", add))
-    app.add_handler(CommandHandler("report", report))
-    app.add_handler(CommandHandler("balance", balance))
-    app.add_handler(CommandHandler("exportar", exportar))
+    # Handlers em português
+    app.add_handler(CommandHandler("iniciar", iniciar))
+    app.add_handler(CommandHandler("registrar", registrar))
+    app.add_handler(CommandHandler("resumo", resumo))
+    app.add_handler(CommandHandler("saldo", saldo))
+    app.add_handler(CommandHandler("planilha", planilha))
+    app.add_handler(CommandHandler("painel", painel))
 
     app.run_polling()
 

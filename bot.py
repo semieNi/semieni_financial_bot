@@ -29,15 +29,26 @@ async def iniciar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    registrar_usuario(user_id)
+
+    if len(context.args) != 3:
+        await update.message.reply_text("⚠️ Formato inválido. Use:\n/registrar [gasto|receita] [valor] [categoria]")
+        return
+
+    tipo, valor_str, categoria = context.args
+
     try:
-        user_id = update.effective_user.id
-        registrar_usuario(user_id)
-        tipo, valor, categoria = context.args
-        valor = float(valor)
+        valor = float(valor_str)
+    except ValueError:
+        await update.message.reply_text("⚠️ Valor inválido. Use um número. Ex: /registrar gasto 10 mercado")
+        return
 
-        adicionar_transacao(user_id, tipo.lower(), valor, categoria.lower())
-        await update.message.reply_text(f"{tipo.capitalize()} de R${valor:.2f} em '{categoria}' registrado com sucesso!")
+    adicionar_transacao(user_id, tipo.lower(), valor, categoria.lower())
+    await update.message.reply_text(f"{tipo.capitalize()} de R${valor:.2f} em '{categoria}' registrado com sucesso!")
 
+    # ⚠️ Alerta separado
+    try:
         receita_mes, gasto_mes = obter_totais_mes_atual(user_id)
         if receita_mes > 0 and gasto_mes >= receita_mes * 0.8:
             percentual = (gasto_mes / receita_mes) * 100
@@ -45,9 +56,8 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚠️ Atenção! Seus gastos neste mês já atingiram {percentual:.0f}% da sua receita.\n"
                 "Considere reduzir os gastos para evitar ultrapassar seu orçamento."
             )
-
-    except Exception:
-        await update.message.reply_text("⚠️ Formato inválido. Use:\n/registrar [gasto|receita] [valor] [categoria]")
+    except Exception as e:
+        print(f"[Erro alerta automático] {e}")
 
 async def resumo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -88,7 +98,7 @@ async def painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     registrar_usuario(user_id)
 
-    url_base = "https://dashboard-financeiro-3l8yw3xux3u4iztqermk3v.streamlit.app/"  # 🟡 Substitua pela URL real do seu Streamlit
+    url_base = "https://dashboard-financeiro-3l8yw3xux3u4iztqermk3v.streamlit.app/"
     link = f"{url_base}/?user_id={user_id}"
 
     await update.message.reply_text(f"📊 Aqui está seu painel de finanças:\n{link}")
@@ -119,7 +129,7 @@ if __name__ == "__main__":
     scheduler.add_job(enviar_saldo_mensal, "cron", day=1, hour=8, minute=0, args=[app])
     scheduler.start()
 
-    # Handlers em português
+    # Handlers
     app.add_handler(CommandHandler("iniciar", iniciar))
     app.add_handler(CommandHandler("registrar", registrar))
     app.add_handler(CommandHandler("resumo", resumo))

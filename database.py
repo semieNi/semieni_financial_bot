@@ -1,139 +1,121 @@
-import sqlite3
-import pandas as pd
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, Date, func
+from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime, timedelta
+import pandas as pd
+import os
 
-DB_PATH = "data/finance.db"
+from dotenv import load_dotenv
+load_dotenv()
 
-def conectar():
-    conn = sqlite3.connect(DB_PATH)
-    return conn
+DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(DATABASE_URL)
+Session = sessionmaker(bind=engine)
+Base = declarative_base()
 
-def criar_tabela():
-    conn = conectar()
-    cursor = conn.cursor()
-    # Tabela de transações
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transacoes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            tipo TEXT,
-            valor REAL,
-            categoria TEXT,
-            data TEXT
-        )
-    ''')
-    # Tabela de usuários
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS usuarios (
-            user_id INTEGER PRIMARY KEY
-        )
-    ''')
-    conn.commit()
-    conn.close()
+class Transacao(Base):
+    __tablename__ = 'transacoes'
 
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    tipo = Column(String)
+    valor = Column(Float)
+    categoria = Column(String)
+    data = Column(Date)
+
+class Usuario(Base):
+    __tablename__ = 'usuarios'
+
+    user_id = Column(Integer, primary_key=True)
+
+Base.metadata.create_all(engine)
+
+# 📥 CRUD
 def adicionar_transacao(user_id, tipo, valor, categoria):
-    criar_tabela()
-    conn = conectar()
-    cursor = conn.cursor()
-    data = datetime.now().strftime("%Y-%m-%d")
-    cursor.execute('''
-        INSERT INTO transacoes (user_id, tipo, valor, categoria, data)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (user_id, tipo, valor, categoria, data))
-    conn.commit()
-    conn.close()
+    session = Session()
+    nova = Transacao(
+        user_id=user_id,
+        tipo=tipo,
+        valor=valor,
+        categoria=categoria,
+        data=datetime.now().date()
+    )
+    session.add(nova)
+    session.commit()
+    session.close()
 
 def obter_resumo(user_id):
-    criar_tabela()
-    conn = conectar()
-    cursor = conn.cursor()
-    sete_dias_atras = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-
-    cursor.execute('''
-        SELECT tipo, categoria, SUM(valor)
-        FROM transacoes
-        WHERE user_id = ? AND data >= ?
-        GROUP BY tipo, categoria
-    ''', (user_id, sete_dias_atras))
-
-    resultado = cursor.fetchall()
-    conn.close()
-    return resultado
+    session = Session()
+    sete_dias = datetime.now().date() - timedelta(days=7)
+    resultados = session.query(
+        Transacao.tipo,
+        Transacao.categoria,
+        func.sum(Transacao.valor)
+    ).filter(
+        Transacao.user_id == user_id,
+        Transacao.data >= sete_dias
+    ).group_by(Transacao.tipo, Transacao.categoria).all()
+    session.close()
+    return resultados
 
 def obter_saldo(user_id):
-    criar_tabela()
-    conn = conectar()
-    cursor = conn.cursor()
+    session = Session()
+    resultados = session.query(
+        Transacao.tipo,
+        func.sum(Transacao.valor)
+    ).filter(
+        Transacao.user_id == user_id
+    ).group_by(Transacao.tipo).all()
+    session.close()
 
-    cursor.execute('''
-        SELECT tipo, SUM(valor) FROM transacoes
-        WHERE user_id = ?
-        GROUP BY tipo
-    ''', (user_id,))
-
-    resultado = cursor.fetchall()
-    conn.close()
-
-    total_receitas = sum(v for t, v in resultado if t == "receita")
-    total_gastos = sum(v for t, v in resultado if t == "gasto")
-    saldo = total_receitas - total_gastos
-    return saldo
+    receitas = sum(v for t, v in resultados if t == "receita")
+    gastos = sum(v for t, v in resultados if t == "gasto")
+    return receitas - gastos
 
 def exportar_transacoes(user_id):
-    criar_tabela()
-    conn = conectar()
-    query = '''
-        SELECT data, tipo, valor, categoria
-        FROM transacoes
-        WHERE user_id = ?
-        ORDER BY data DESC
-    '''
-    df = pd.read_sql_query(query, conn, params=(user_id,))
-    conn.close()
+    session = Session()
+    query = session.query(Transacao).filter_by(user_id=user_id).order_by(Transacao.data.desc())
+    rows = query.all()
+    session.close()
 
-    if df.empty:
+    if not rows:
         return None
 
-    caminho_csv = f"data/transacoes_{user_id}.csv"
-    df.to_csv(caminho_csv, index=False, sep=";")
-    return caminho_csv
+    df = pd.DataFrame([{
+        "data": r.data.strftime("%Y-%m-%d"),
+        "tipo": r.tipo,
+        "valor": r.valor,
+        "categoria": r.categoria
+    } for r in rows])
+
+    path = f"data/transacoes_{user_id}.csv"
+    df.to_csv(path, index=False, sep=";")
+    return path
 
 def obter_totais_mes_atual(user_id):
-    criar_tabela()
-    conn = conectar()
-    cursor = conn.cursor()
-
+    session = Session()
     mes_atual = datetime.now().strftime("%Y-%m")
+    resultados = session.query(
+        Transacao.tipo,
+        func.sum(Transacao.valor)
+    ).filter(
+        Transacao.user_id == user_id,
+        func.strftime('%Y-%m', Transacao.data) == mes_atual
+    ).group_by(Transacao.tipo).all()
+    session.close()
 
-    cursor.execute('''
-        SELECT tipo, SUM(valor)
-        FROM transacoes
-        WHERE user_id = ? AND strftime('%Y-%m', data) = ?
-        GROUP BY tipo
-    ''', (user_id, mes_atual))
-
-    resultado = cursor.fetchall()
-    conn.close()
-
-    receita = next((v for t, v in resultado if t == "receita"), 0)
-    gasto = next((v for t, v in resultado if t == "gasto"), 0)
-
+    receita = next((v for t, v in resultados if t == "receita"), 0)
+    gasto = next((v for t, v in resultados if t == "gasto"), 0)
     return receita, gasto
 
-# 🔔 Funções para lembretes automáticos
 def registrar_usuario(user_id):
-    criar_tabela()
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute('INSERT OR IGNORE INTO usuarios (user_id) VALUES (?)', (user_id,))
-    conn.commit()
-    conn.close()
+    session = Session()
+    if not session.query(Usuario).filter_by(user_id=user_id).first():
+        session.add(Usuario(user_id=user_id))
+        session.commit()
+    session.close()
 
 def listar_usuarios():
-    criar_tabela()
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute('SELECT user_id FROM usuarios')
-    usuarios = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    return usuarios
+    session = Session()
+    ids = session.query(Usuario.user_id).all()
+    session.close()
+    return [u[0] for u in ids]
